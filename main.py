@@ -69,7 +69,7 @@ plt.show()
 #Crear el modelo
 #growth tiene dos opciones: 'linear' y 'logistic'. Linear si es que no hay limites y logistic si hay limites.
 
-def evaluar_modelo(df, cps, sps, growth_type, cp_range):
+def evaluar_modelo(df, cps, sps, growth_type):
     """
     Entrena un Prophet, calcula MAPE en los últimos 5 meses.
     Retorna MAPE y el modelo entrenado.
@@ -79,7 +79,6 @@ def evaluar_modelo(df, cps, sps, growth_type, cp_range):
         m = Prophet(
             changepoint_prior_scale=cps,
             seasonality_prior_scale=sps,
-            changepoint_range=cp_range, 
             yearly_seasonality=True,
             weekly_seasonality=False,
             daily_seasonality=False,
@@ -114,10 +113,7 @@ cps_auto = detectar_changepoint_scale(df)
 
 cps_list = [0.005, 0.01, 0.03, 0.05, 0.08, 0.1, 0.15, 0.2, 0.3]
 sps_list = [1, 2, 5, 10, 15, 20]
-season_mode_list = ['additive', 'multiplicative']
-cp_range_list = [0.7, 0.8, 0.9]
 growth_list = ['linear', 'logistic']
-
 
 # Reglas para logistic (máximo histórico × 1.3)
 cap_max = df['y'].max() * 1.3
@@ -129,28 +125,26 @@ mejor_modelo = None
 mejores_params = None
 
 print("\n=== ENTRENANDO MODELOS AUTOMÁTICOS ===")
-#9 (cps) × 6 (sps) × 3 (cp_range) × 2 (growth) = 324 modelos
+
 for cps in cps_list:
     for sps in sps_list:
-        for cp_range in cp_range_list:
-            for growth in growth_list:
+        for growth in growth_list:
 
-                df_model = df_logistic if growth == 'logistic' else df
+            df_model = df_logistic if growth == 'logistic' else df
 
-                mape, modelo = evaluar_modelo(df_model, cps, sps, growth, cp_range)
+            mape, modelo = evaluar_modelo(df_model, cps, sps, growth)
 
-                print(f"Modelo cps={cps}, sps={sps}, growth={growth} → MAPE={mape:.2f}%, cp_range={cp_range}")
+            print(f"Modelo cps={cps}, sps={sps}, growth={growth} → MAPE={mape:.2f}%")
 
-                if mape < mejor_mape:
-                    mejor_mape = mape
-                    mejor_modelo = modelo
-                    mejores_params = (cps, sps, cp_range, growth)
+            if mape < mejor_mape:
+                mejor_mape = mape
+                mejor_modelo = modelo
+                mejores_params = (cps, sps, growth)
 
 print("\n=== MEJOR MODELO ENCONTRADO ===")
-print(f"Changepoint Scale (cps): {mejores_params[0]}")
-print(f"Seasonality Scale (sps): {mejores_params[1]}")
-print(f"Changepoint Range (cp_range): {mejores_params[2]}")
-print(f"Crecimiento (growth): {mejores_params[3]}")
+print(f"Changepoint Scale: {mejores_params[0]}")
+print(f"Seasonality Scale: {mejores_params[1]}")
+print(f"Crecimiento: {mejores_params[2]}")
 print(f"MEJOR MAPE: {mejor_mape:.2f}%")
 
 m = mejor_modelo
