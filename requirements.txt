@@ -3,3 +3,6 @@ prophet
 matplotlib
 numpy
 sklearn
+redis
+psycopg2-binary
+python-dotenv
