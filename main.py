@@ -2,6 +2,8 @@ import pandas as pd
 from prophet import Prophet
 import matplotlib.pyplot as plt
 import numpy as np
+from sklearn.linear_model import LinearRegression
+import numpy as np
 
 def detectar_changepoint_scale(df):
     y = df['y'].values
@@ -40,7 +42,8 @@ def detectar_changepoint_scale(df):
     return 0.2
 
 #Cargar datos
-df = pd.read_csv('data.csv', sep=';', decimal=',')
+df = pd.read_csv('data3.csv', sep=';', decimal=',')
+df['ds'] = pd.to_datetime(df['ds'])
 df = df[['ds', 'y']]
 
 print("=== DIAGNÓSTICO INICIAL ===")
@@ -68,6 +71,44 @@ plt.show()
 
 #Crear el modelo
 #growth tiene dos opciones: 'linear' y 'logistic'. Linear si es que no hay limites y logistic si hay limites.
+
+if len(df) < 20:  # puedes ajustar el umbral
+    print("\nDatos insuficientes para Prophet. Usando modelo alternativo de regresión lineal.\n")
+
+    # Preparar datos
+    y = df["y"].values
+    X = np.arange(len(y)).reshape(-1, 1)
+
+    # Entrenar modelo
+    modelo_lr = LinearRegression()
+    modelo_lr.fit(X, y)
+
+    # Predicción del siguiente punto
+    next_index = np.array([[len(y)]])
+    pred = modelo_lr.predict(next_index)[0]
+
+    # Calcular MAPE usando leave-one-out
+    errores = []
+    for i in range(1, len(y)):
+        X_train = np.arange(i).reshape(-1, 1)
+        y_train = y[:i]
+        X_test = np.array([[i]])
+        y_test = y[i]
+
+        modelo_temp = LinearRegression()
+        modelo_temp.fit(X_train, y_train)
+        pred_i = modelo_temp.predict(X_test)[0]
+
+        errores.append(abs((y_test - pred_i) / y_test) * 100)
+
+    mape_lr = np.mean(errores)
+
+    print(f"Predicción del próximo mes: {pred:.2f}")
+    print(f"Porcentaje de acierto estimado: {100 - mape_lr:.2f}%")
+
+    # IMPORTANTE: detener ejecución para NO usar Prophet
+    import sys
+    sys.exit()
 
 def evaluar_modelo(df, cps, sps, growth_type):
     """
