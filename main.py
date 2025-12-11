@@ -6,40 +6,54 @@ from sklearn.linear_model import LinearRegression
 import numpy as np
 
 def detectar_changepoint_scale(df):
+    """
+    Combina tu nuevo enfoque (R²) con el antiguo (CV)
+    para mayor robustez.
+    """
     y = df['y'].values
-    media = np.mean(y)
-    std = np.std(y)
-
-    # Desviación estándar relativa
-    std_rel = std / media
-
-    # Cambios mes a mes
-    cambios = np.abs(np.diff(y) / y[:-1])
-    cambios_prom = np.mean(cambios)
-
-    # Rango relativo
-    rango_rel = (np.max(y) - np.min(y)) / media
-
-    print("\n=== ANÁLISIS DE VARIABILIDAD ===")
-    print(f"Desviación relativa: {std_rel:.3f}")
-    print(f"Promedio de cambios mensuales: {cambios_prom:.3f}")
-    print(f"Rango relativo: {rango_rel:.3f}")
-
-    # Decisión automática
-    if std_rel < 0.10 and cambios_prom < 0.10:
-        print("Serie MUY SUAVE → usando CPS = 0.01")
+    
+    # MÉTRICA 1: Tendencia lineal (tu contribución)
+    x = np.arange(len(y)).reshape(-1, 1)
+    modelo = LinearRegression().fit(x, y)
+    r2 = modelo.score(x, y)
+    
+    # MÉTRICA 2: Variabilidad (contribución original)
+    cv = np.std(y) / np.mean(y)
+    
+    # MÉTRICA 3: Cambios relativos
+    cambios = np.abs(np.diff(y) / (y[:-1] + 1e-10))
+    cambios_prom = np.median(cambios)  # Mediana más robusta
+    
+    print("\n=== ANÁLISIS HÍBRIDO ===")
+    print(f"Tendencia (R²): {r2:.3f}")
+    print(f"Variabilidad (CV): {cv:.3f}")
+    print(f"Cambio mensual mediano: {cambios_prom:.3f}")
+    
+    # PUNTUACIÓN COMBINADA
+    # Da peso a ambas métricas
+    score_tendencia = r2 * 0.7  # Peso 70% a tendencia
+    score_variabilidad = max(0, 1 - cv) * 0.3  # Peso 30% a estabilidad
+    
+    score_total = score_tendencia + score_variabilidad
+    
+    print(f"Puntuación combinada: {score_total:.3f}")
+    
+    # DECISIÓN BASADA EN PUNTUACIÓN
+    if score_total > 0.8:
+        print("Serie ALTAMENTE PREDECIBLE (CPS = 0.01)")
         return 0.01
-
-    if std_rel < 0.25:
-        print("Serie NORMAL → usando CPS = 0.05")
+    elif score_total > 0.6:
+        print("Serie PREDECIBLE (CPS = 0.03)")
+        return 0.03
+    elif score_total > 0.4:
+        print("Serie MODERADA (CPS = 0.05)")
         return 0.05
-
-    if std_rel < 0.50:
-        print("Serie VARIABLE → usando CPS = 0.1")
+    elif score_total > 0.2:
+        print("Serie VARIABLE (CPS = 0.1)")
         return 0.1
-
-    print("Serie MUY VARIABLE → usando CPS = 0.2")
-    return 0.2
+    else:
+        print("Serie MUY VARIABLE (CPS = 0.2)")
+        return 0.2
 
 #Cargar datos
 df = pd.read_csv('data3.csv', sep=';', decimal=',')
@@ -72,22 +86,24 @@ plt.show()
 #Crear el modelo
 #growth tiene dos opciones: 'linear' y 'logistic'. Linear si es que no hay limites y logistic si hay limites.
 
-if len(df) < 20:  # puedes ajustar el umbral
-    print("\nDatos insuficientes para Prophet. Usando modelo alternativo de regresión lineal.\n")
+# ======================================================
+# MODELO ALTERNATIVO PARA SERIES CON POCOS DATOS
+# ======================================================
+if len(df) < 20:  
+    print("\nDataset pequeño (<20 filas). Usando modelo alternativo de regresión lineal.\n")
 
-    # Preparar datos
     y = df["y"].values
     X = np.arange(len(y)).reshape(-1, 1)
 
-    # Entrenar modelo
+    # Modelo lineal (sin overfitting)
     modelo_lr = LinearRegression()
     modelo_lr.fit(X, y)
 
-    # Predicción del siguiente punto
+    # Predicción del próximo mes
     next_index = np.array([[len(y)]])
     pred = modelo_lr.predict(next_index)[0]
 
-    # Calcular MAPE usando leave-one-out
+    # Leave-One-Out MAPE
     errores = []
     for i in range(1, len(y)):
         X_train = np.arange(i).reshape(-1, 1)
@@ -102,13 +118,43 @@ if len(df) < 20:  # puedes ajustar el umbral
         errores.append(abs((y_test - pred_i) / y_test) * 100)
 
     mape_lr = np.mean(errores)
-
     print(f"Predicción del próximo mes: {pred:.2f}")
     print(f"Porcentaje de acierto estimado: {100 - mape_lr:.2f}%")
 
-    # IMPORTANTE: detener ejecución para NO usar Prophet
-    import sys
-    sys.exit()
+    # ======================================================
+    # GRAFICAR RESULTADOS
+    # ======================================================
+    plt.figure(figsize=(10, 6))
+    plt.plot(df["ds"], df["y"], marker='o', label="Datos reales", linewidth=2)
+    plt.plot(df["ds"].tolist() + [df["ds"].iloc[-1] + pd.DateOffset(months=1)],
+             modelo_lr.predict(np.arange(len(y)+1).reshape(-1, 1)),
+             linestyle='--', marker='o', label="Tendencia modelo LR")
+
+    plt.title("Modelo Lineal — Pronóstico con pocos datos", fontsize=14)
+    plt.xlabel("Fecha")
+    plt.ylabel("Consumo")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    # ======================================================
+    # 📎 INTERVALO DE CONFIANZA SIMPLE
+    # ======================================================
+    residuals = y - modelo_lr.predict(X)
+    std_err = np.std(residuals)
+
+    lower = pred - 1.96 * std_err
+    upper = pred + 1.96 * std_err
+
+    print("\n🔎 Intervalo de confianza del pronóstico:")
+    print(f"  y_hat: {pred:.2f}")
+    print(f"  Lower: {lower:.2f}")
+    print(f"  Upper: {upper:.2f}")
+
+    # DETENER PARA NO USAR PROPHET
+    quit()
+
 
 def evaluar_modelo(df, cps, sps, growth_type):
     """
@@ -157,7 +203,7 @@ sps_list = [1, 2, 5, 10, 15, 20]
 growth_list = ['linear', 'logistic']
 
 # Reglas para logistic (máximo histórico × 1.3)
-cap_max = df['y'].max() * 1.3
+cap_max = np.percentile(df['y'], 95) * 1.2
 df_logistic = df.copy()
 df_logistic['cap'] = cap_max
 
