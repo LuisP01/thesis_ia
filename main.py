@@ -3,296 +3,422 @@ from prophet import Prophet
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.linear_model import LinearRegression
-import numpy as np
+import os
+import sys
+from sklearn.metrics import mean_absolute_error
 
-def detectar_changepoint_scale(df):
+def analizar_serie(df):
     """
-    Combina tu nuevo enfoque (R²) con el antiguo (CV)
-    para mayor robustez.
+    Análisis básico de la serie temporal para justificación metodológica.
+    Retorna características que ayudan a elegir el modelo.
     """
     y = df['y'].values
     
-    # MÉTRICA 1: Tendencia lineal (tu contribución)
-    x = np.arange(len(y)).reshape(-1, 1)
-    modelo = LinearRegression().fit(x, y)
-    r2 = modelo.score(x, y)
-    
-    # MÉTRICA 2: Variabilidad (contribución original)
-    cv = np.std(y) / np.mean(y)
-    
-    # MÉTRICA 3: Cambios relativos
-    cambios = np.abs(np.diff(y) / (y[:-1] + 1e-10))
-    cambios_prom = np.median(cambios)  # Mediana más robusta
-    
-    print("\n=== ANÁLISIS HÍBRIDO ===")
-    print(f"Tendencia (R²): {r2:.3f}")
-    print(f"Variabilidad (CV): {cv:.3f}")
-    print(f"Cambio mensual mediano: {cambios_prom:.3f}")
-    
-    # PUNTUACIÓN COMBINADA
-    # Da peso a ambas métricas
-    score_tendencia = r2 * 0.7  # Peso 70% a tendencia
-    score_variabilidad = max(0, 1 - cv) * 0.3  # Peso 30% a estabilidad
-    
-    score_total = score_tendencia + score_variabilidad
-    
-    print(f"Puntuación combinada: {score_total:.3f}")
-    
-    # DECISIÓN BASADA EN PUNTUACIÓN
-    if score_total > 0.8:
-        print("Serie ALTAMENTE PREDECIBLE (CPS = 0.01)")
-        return 0.01
-    elif score_total > 0.6:
-        print("Serie PREDECIBLE (CPS = 0.03)")
-        return 0.03
-    elif score_total > 0.4:
-        print("Serie MODERADA (CPS = 0.05)")
-        return 0.05
-    elif score_total > 0.2:
-        print("Serie VARIABLE (CPS = 0.1)")
-        return 0.1
-    else:
-        print("Serie MUY VARIABLE (CPS = 0.2)")
-        return 0.2
-
-#Cargar datos
-df = pd.read_csv('data3.csv', sep=';', decimal=',')
-df['ds'] = pd.to_datetime(df['ds'])
-df = df[['ds', 'y']]
-
-print("=== DIAGNÓSTICO INICIAL ===")
-print("Primeras filas (ORIGINAL):")
-print(df.head())
-print("\nÚltimas filas (ORIGINAL):")
-print(df.tail())
-
-#Estadisticas
-print("\n Estadisticas de consumo 'y':")
-print(f"Minimo: {df['y'].min()}")
-print(f"Maximo: {df['y'].max()}")
-print(f"Media: {df['y'].mean()}")
-
-#Datos historicos
-plt.figure(figsize=(12, 6))
-plt.plot(df['ds'], df['y'], marker='o', linewidth=2, markersize=6, color='blue')
-plt.title("Consumo Mensual Historico", fontsize=14, fontweight='bold')
-plt.xlabel("Fecha")
-plt.ylabel("Consumo")
-plt.grid(True, alpha=0.3)
-plt.xticks(rotation=45)
-plt.tight_layout()
-plt.show()
-
-#Crear el modelo
-#growth tiene dos opciones: 'linear' y 'logistic'. Linear si es que no hay limites y logistic si hay limites.
-
-# ======================================================
-# MODELO ALTERNATIVO PARA SERIES CON POCOS DATOS
-# ======================================================
-if len(df) < 20:  
-    print("\nDataset pequeño (<20 filas). Usando modelo alternativo de regresión lineal.\n")
-
-    y = df["y"].values
+    # 1. Tendencia (R² de regresión lineal)
     X = np.arange(len(y)).reshape(-1, 1)
+    modelo_lineal = LinearRegression().fit(X, y)
+    r2 = modelo_lineal.score(X, y)
+    
+    # 2. Variabilidad (Coeficiente de Variación)
+    cv = np.std(y) / np.mean(y) if np.mean(y) > 0 else 1
+    
+    # 3. Cambios mensuales medianos
+    cambios = np.abs(np.diff(y) / (y[:-1] + 1e-10))
+    cambio_mediano = np.median(cambios)
+    
+    # 4. Estacionalidad aproximada (diferencias año a año)
+    estacionalidad = 0
+    if len(y) >= 13:
+        # Comparar cada mes con el mismo mes del año anterior
+        difs_anuales = []
+        for i in range(12, len(y)):
+            if y[i-12] > 0:
+                dif_rel = abs(y[i] - y[i-12]) / y[i-12]
+                difs_anuales.append(dif_rel)
+        if difs_anuales:
+            estacionalidad = 1 - np.median(difs_anuales)
+    
+    print("\n📊 ANÁLISIS DE LA SERIE TEMPORAL:")
+    print(f"   • Tendencia (R²): {r2:.3f}")
+    print(f"   • Variabilidad (CV): {cv:.3f}")
+    print(f"   • Cambio mensual mediano: {cambio_mediano:.3f}")
+    print(f"   • Estacionalidad aproximada: {estacionalidad:.3f}")
+    
+    return {
+        'r2': r2,
+        'cv': cv,
+        'cambio_mediano': cambio_mediano,
+        'estacionalidad': estacionalidad,
+        'n_meses': len(y)
+    }
 
-    # Modelo lineal (sin overfitting)
-    modelo_lr = LinearRegression()
-    modelo_lr.fit(X, y)
+def walk_forward_validation(df, modelo_tipo='prophet', parametros=None, verbose=False):
 
-    # Predicción del próximo mes
-    next_index = np.array([[len(y)]])
-    pred = modelo_lr.predict(next_index)[0]
-
-    # Leave-One-Out MAPE
+    """
+    Validación temporal walk-forward para series temporales.
+    Solo usa datos pasados para predecir futuros.
+    """
     errores = []
-    for i in range(1, len(y)):
-        X_train = np.arange(i).reshape(-1, 1)
-        y_train = y[:i]
-        X_test = np.array([[i]])
-        y_test = y[i]
+    predicciones = []
+    reales = []
+    
+    # Mínimo 12 meses para entrenar, dejar 12 para validar
+    n_total = len(df)
+    if n_total < 24:
+        print("    Pocos datos para validación walk-forward completa")
+        return np.inf, ([], [])
+    
+    # Para cada punto desde el mes 24 hasta el final
+    for i in range(12, n_total - 1):
+        # Entrenar con datos hasta i
+        df_train = df.iloc[:i+1].copy()
+        
+        if modelo_tipo == 'prophet':
+            # Configurar Prophet con parámetros
+            if parametros is None:
+                parametros = {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10}
+            
+            m = Prophet(
+                yearly_seasonality=True,
+                weekly_seasonality=False,
+                daily_seasonality=False,
+                changepoint_prior_scale=parametros.get('changepoint_prior_scale', 0.05),
+                seasonality_prior_scale=parametros.get('seasonality_prior_scale', 10),
+                interval_width=0.95
+            )
+            m.fit(df_train)
+            
+            # Predecir próximo mes
+            future = m.make_future_dataframe(periods=1, freq='ME')
+            forecast = m.predict(future)
+            pred = forecast.iloc[-1]['yhat']
+            
+        elif modelo_tipo == 'lineal':
+            # Regresión lineal
+            X_train = np.arange(len(df_train)).reshape(-1, 1)
+            y_train = df_train['y'].values
+            
+            modelo = LinearRegression()
+            modelo.fit(X_train, y_train)
+            
+            # Predecir próximo mes
+            pred = modelo.predict([[len(df_train)]])[0]
+        
+        # Valor real (siguiente mes)
+        real = df.iloc[i+1]['y']
+        
+        # Calcular error (protegido contra divisiones por cero)
+        error_rel = abs(real - pred) / max(abs(real), 1e-6)
 
-        modelo_temp = LinearRegression()
-        modelo_temp.fit(X_train, y_train)
-        pred_i = modelo_temp.predict(X_test)[0]
+        if verbose:
+            train_start = df_train['ds'].iloc[0].strftime('%Y-%m')
+            train_end = df_train['ds'].iloc[-1].strftime('%Y-%m')
+            test_date = df.iloc[i+1]['ds'].strftime('%Y-%m')
+            
+            print(
+                f"🧪 [{modelo_tipo.upper()}] "
+                f"Train: {train_start} → {train_end} | "
+                f"Test: {test_date} | "
+                f"Real: {real:.2f} | Pred: {pred:.2f} | "
+                f"Error: {error_rel*100:.2f}%"
+            )
 
-        errores.append(abs((y_test - pred_i) / y_test) * 100)
+        
+        errores.append(error_rel)
+        predicciones.append(pred)
+        reales.append(real)
+    
+    mape = np.mean(errores) * 100 if errores else np.inf
+    
+    return mape, (reales, predicciones)
 
-    mape_lr = np.mean(errores)
-    print(f"Predicción del próximo mes: {pred:.2f}")
-    print(f"Porcentaje de acierto estimado: {100 - mape_lr:.2f}%")
-
-    # ======================================================
-    # GRAFICAR RESULTADOS
-    # ======================================================
-    plt.figure(figsize=(10, 6))
-    plt.plot(df["ds"], df["y"], marker='o', label="Datos reales", linewidth=2)
-    plt.plot(df["ds"].tolist() + [df["ds"].iloc[-1] + pd.DateOffset(months=1)],
-             modelo_lr.predict(np.arange(len(y)+1).reshape(-1, 1)),
-             linestyle='--', marker='o', label="Tendencia modelo LR")
-
-    plt.title("Modelo Lineal — Pronóstico con pocos datos", fontsize=14)
-    plt.xlabel("Fecha")
-    plt.ylabel("Consumo")
-    plt.grid(True, alpha=0.3)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-
-    # ======================================================
-    # 📎 INTERVALO DE CONFIANZA SIMPLE
-    # ======================================================
-    residuals = y - modelo_lr.predict(X)
-    std_err = np.std(residuals)
-
-    lower = pred - 1.96 * std_err
-    upper = pred + 1.96 * std_err
-
-    print("\n🔎 Intervalo de confianza del pronóstico:")
-    print(f"  y_hat: {pred:.2f}")
-    print(f"  Lower: {lower:.2f}")
-    print(f"  Upper: {upper:.2f}")
-
-    # DETENER PARA NO USAR PROPHET
-    quit()
-
-
-def evaluar_modelo(df, cps, sps, growth_type):
+def evaluar_modelos_prophet(df, caracteristicas):
     """
-    Entrena un Prophet, calcula MAPE en los últimos 5 meses.
-    Retorna MAPE y el modelo entrenado.
+    Evalúa diferentes configuraciones de Prophet basadas en las características.
+    Versión simplificada para tesis.
     """
+    resultados = []
+    
+    # Configuraciones basadas en el análisis
+    if caracteristicas['r2'] > 0.7:
+        # Serie con buena tendencia
+        cps_list = [0.01, 0.05]
+    elif caracteristicas['cv'] > 0.5:
+        # Serie muy variable
+        cps_list = [0.1, 0.2]
+    else:
+        # Serie moderada
+        cps_list = [0.05, 0.1]
+    
+    # Seasonality scale basado en estacionalidad
+    if caracteristicas['estacionalidad'] > 0.3:
+        sps_list = [5, 10]
+    else:
+        sps_list = [10, 20]
+    
+    print(f"\n🔍 Evaluando Prophet: {len(cps_list)}×{len(sps_list)} = {len(cps_list)*len(sps_list)} combinaciones")
+    
+    for cps in cps_list:
+        for sps in sps_list:
+            print(f"  • Probando cps={cps}, sps={sps}")
+            
+            mape, _ = walk_forward_validation(
+                df, 
+                modelo_tipo='prophet',
+                parametros={'changepoint_prior_scale': cps, 'seasonality_prior_scale': sps},
+                verbose= True
+            )
+            
+            if mape < np.inf:
+                resultados.append({
+                    'mape': mape,
+                    'cps': cps,
+                    'sps': sps
+                })
+    
+    # Ordenar por MAPE
+    resultados.sort(key=lambda x: x['mape'])
+    
+    return resultados
 
-    try:
+def predecir_proximo_mes(df, mejor_modelo, parametros=None):
+    """
+    Predice el próximo mes usando el mejor modelo encontrado.
+    """
+    if mejor_modelo == 'lineal':
+        X = np.arange(len(df)).reshape(-1, 1)
+        y = df['y'].values
+        
+        modelo = LinearRegression()
+        modelo.fit(X, y)
+        
+        proximo_idx = len(df)
+        pred = modelo.predict([[proximo_idx]])[0]
+        
+        residuos = y - modelo.predict(X)
+        std_residuos = np.std(residuos)
+        intervalo = [pred - 2*std_residuos, pred + 2*std_residuos]
+        
+        return pred, intervalo, modelo
+        
+    elif mejor_modelo == 'prophet':
+        if parametros is None:
+            parametros = {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10}
+        
         m = Prophet(
-            changepoint_prior_scale=cps,
-            seasonality_prior_scale=sps,
             yearly_seasonality=True,
             weekly_seasonality=False,
             daily_seasonality=False,
-            growth=growth_type
+            changepoint_prior_scale=parametros['changepoint_prior_scale'],
+            seasonality_prior_scale=parametros['seasonality_prior_scale'],
+            interval_width=0.95
         )
-
-        # Entrenar
+        
         m.fit(df)
-
-        # Crear forecast SOLO del histórico
-        future = m.make_future_dataframe(periods=0, freq='ME')
-        if 'cap' in df.columns:
-            future['cap'] = df['cap'].max()
+        
+        future = m.make_future_dataframe(periods=1, freq='ME')
         forecast = m.predict(future)
+        
+        pred = forecast.iloc[-1]['yhat']
+        intervalo = [forecast.iloc[-1]['yhat_lower'], forecast.iloc[-1]['yhat_upper']]
+        
+        return pred, intervalo, m
 
-        # Comparación real vs yhat
-        real = df['y'].tail(5).values
-        pred = forecast['yhat'].tail(5).values
-
-        mape = np.mean(np.abs((real - pred) / real)) * 100
-
-        return mape, m
-
+def main():
+    print("=" * 60)
+    print("SISTEMA DE PREDICCIÓN - VERSIÓN TESIS OPTIMIZADA")
+    print("=" * 60)
+    
+    cedula = input("Ingrese el número de cédula: ").strip()
+    if not cedula:
+        print("❌ Error: La cédula no puede estar vacía")
+        sys.exit(1)
+    
+    tipo = input("Ingrese el tipo de servicio (agua/luz): ").strip().lower()
+    if tipo not in ['agua', 'luz']:
+        print("❌ Error: El tipo debe ser 'agua' o 'luz'")
+        sys.exit(1)
+    
+    nombre_archivo = f"{cedula}_{tipo}.csv"
+    
+    if not os.path.exists(nombre_archivo):
+        print(f"❌ Error: No se encontró el archivo '{nombre_archivo}'")
+        sys.exit(1)
+    
+    try:
+        df = pd.read_csv(nombre_archivo, sep=';', decimal=',')
+        df['ds'] = pd.to_datetime(df['ds'])
+        
+        df['ds'] = df['ds'].dt.to_period('M').dt.to_timestamp('M')
+        
+        df = df[['ds', 'y']].sort_values('ds').reset_index(drop=True)
+        
+        print(f"\n✅ Datos cargados: {len(df)} meses")
+        print(f"📅 Desde: {df['ds'].iloc[0].strftime('%Y-%m')}")
+        print(f"📅 Hasta: {df['ds'].iloc[-1].strftime('%Y-%m')}")
+        
     except Exception as e:
-        print(f"⚠️ Error con cps={cps}, sps={sps}, growth={growth_type}: {e}")
-        return np.inf, None
+        print(f"❌ Error al cargar datos: {e}")
+        sys.exit(1)
+    
+    print("\n" + "=" * 60)
+    print("ANÁLISIS EXPLORATORIO")
+    print("=" * 60)
+    
+    caracteristicas = analizar_serie(df)
+    
+    print("\n" + "=" * 60)
+    print("EVALUACIÓN DE MODELOS (WALK-FORWARD VALIDATION)")
+    print("=" * 60)
+    
+    print("\n📈 Evaluando Regresión Lineal...")
+    mape_lineal, resultados_lineal = walk_forward_validation(df, modelo_tipo='lineal')
+    
+    mape_prophet = np.inf
+    mejores_parametros_prophet = None
+    resultados_prophet = []
+    
+    if caracteristicas['n_meses'] >= 24:
+        print("\n📈 Evaluando Prophet...")
+        resultados_prophet = evaluar_modelos_prophet(df, caracteristicas)
+        
+        if resultados_prophet:
+            mape_prophet = resultados_prophet[0]['mape']
+            mejores_parametros_prophet = {
+                'changepoint_prior_scale': resultados_prophet[0]['cps'],
+                'seasonality_prior_scale': resultados_prophet[0]['sps']
+            }
+    else:
+        print(f"\n  Datos insuficientes para Prophet (se requieren ≥24 meses, hay {caracteristicas['n_meses']})!!!")
+    
+    print("\n" + "=" * 60)
+    print("COMPARACIÓN DE MODELOS")
+    print("=" * 60)
+    
+    print(f"\n📊 RESULTADOS DE VALIDACIÓN:")
+    print(f"   • Regresión Lineal: MAPE = {mape_lineal:.2f}%")
+    
+    if mape_prophet < np.inf:
+        print(f"   • Prophet (mejor configuración): MAPE = {mape_prophet:.2f}%")
+    
+    if mape_prophet < mape_lineal:
+        mejor_modelo = 'prophet'
+        diferencia = mape_lineal - mape_prophet
+        print(f"\n✅ MEJOR MODELO: Prophet (mejor por {diferencia:.2f}% MAPE)")
+        print(f"   • Parámetros óptimos: CPS={mejores_parametros_prophet['changepoint_prior_scale']}, "
+              f"SPS={mejores_parametros_prophet['seasonality_prior_scale']}")
+    else:
+        mejor_modelo = 'lineal'
+        if mape_prophet < np.inf:
+            diferencia = mape_prophet - mape_lineal
+            print(f"\n✅ MEJOR MODELO: Regresión Lineal (mejor por {diferencia:.2f}% MAPE)")
+        else:
+            print(f"\n✅ MEJOR MODELO: Regresión Lineal (único modelo evaluable)")
+    
+    print(f"\n🎓 JUSTIFICACIÓN ACADÉMICA:")
+    
+    if mejor_modelo == 'lineal':
+        if caracteristicas['r2'] > 0.7:
+            print(f"   • Serie con fuerte tendencia lineal (R²={caracteristicas['r2']:.3f})")
+        if caracteristicas['estacionalidad'] < 0.2:
+            print(f"   • Baja estacionalidad detectada ({caracteristicas['estacionalidad']:.3f})")
+        if caracteristicas['n_meses'] < 24:
+            print(f"   • Datos insuficientes para modelos complejos (n={caracteristicas['n_meses']})")
+        print(f"   • Modelo parsimonioso más robusto para series cortas/lineales")
+    
+    elif mejor_modelo == 'prophet':
+        print(f"   • Prophet captura mejor la estacionalidad ({caracteristicas['estacionalidad']:.3f})")
+        print(f"   • Suficientes datos para modelo complejo (n={caracteristicas['n_meses']})")
+        print(f"   • Intervalos de confianza probabilísticos")
+    
+    print("\n" + "=" * 60)
+    print("PREDICCIÓN DEL PRÓXIMO MES")
+    print("=" * 60)
+    
+    if mejor_modelo == 'prophet' and mejores_parametros_prophet:
+        pred, intervalo, modelo_obj = predecir_proximo_mes(
+            df, mejor_modelo, mejores_parametros_prophet
+        )
+    else:
+        pred, intervalo, modelo_obj = predecir_proximo_mes(df, mejor_modelo)
+    
+    ultima_fecha = df['ds'].iloc[-1]
+    if pd.isna(ultima_fecha):
+        proxima_fecha = "Desconocida"
+    else:
+        ultima_fecha = pd.Timestamp(ultima_fecha)
+        proxima_fecha = (ultima_fecha + pd.DateOffset(months=1)).strftime('%Y-%m')
+    
+    print(f"\nPróximo mes a predecir: {proxima_fecha}")
+    print(f"Valor predicho: {pred:.2f}")
+    print(f"Intervalo de confianza 95%: [{intervalo[0]:.2f}, {intervalo[1]:.2f}]")
+    print(f"Modelo utilizado: {mejor_modelo.upper()}")
+    
+    print("\n📈 Generando gráfico de resultados...")
+    
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    ax.plot(df['ds'], df['y'], 'b-', label='Datos históricos', linewidth=2)
+    
+    if mejor_modelo == 'prophet':
+        fig2 = modelo_obj.plot(modelo_obj.predict(
+            modelo_obj.make_future_dataframe(periods=1, freq='ME')
+        ))
+        plt.title(f"Predicción Prophet - {tipo.capitalize()} (Cédula: {cedula})", fontsize=14)
+        plt.xlabel("Fecha")
+        plt.ylabel("Consumo")
+        plt.grid(True, alpha=0.3)
+    else:
+        X = np.arange(len(df)).reshape(-1, 1)
+        y = df['y'].values
+        
+        ax.plot(df['ds'], modelo_obj.predict(X), 'r--', label='Tendencia lineal', linewidth=2)
+        
+        ax.axvline(x=pd.Timestamp(proxima_fecha + '-01'), color='g', linestyle=':', 
+                  label='Mes a predecir', linewidth=2)
+        ax.plot(pd.Timestamp(proxima_fecha + '-01'), pred, 'go', markersize=10, 
+               label=f'Predicción: {pred:.1f}')
+        
+        ax.fill_between([pd.Timestamp(proxima_fecha + '-01')], 
+                       intervalo[0], intervalo[1], 
+                       color='green', alpha=0.2, label='Intervalo 95%')
+        
+        ax.set_title(f"Predicción Lineal - {tipo.capitalize()} (Cédula: {cedula})", fontsize=14)
+        ax.set_xlabel("Fecha")
+        ax.set_ylabel("Consumo")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.show()
+    
+    print("\n" + "=" * 60)
+    print("RESUMEN PARA DOCUMENTACIÓN DE TESIS")
+    print("=" * 60)
+    
+    print(f"\nMETODOLOGÍA APLICADA:")
+    print(f"   1. Análisis exploratorio de la serie temporal")
+    print(f"   2. Validación walk-forward (temporalmente correcta)")
+    print(f"   3. Comparación de dos modelos: Lineal vs Prophet")
+    print(f"   4. Selección basada en MAPE y características de la serie")
+    print(f"   5. Predicción del próximo mes con intervalo de confianza")
+    
+    print(f"\nRESULTADOS OBTENIDOS:")
+    print(f"   • Modelo seleccionado: {mejor_modelo.upper()}")
+    print(f"   • MAPE modelo lineal: {mape_lineal:.2f}%")
+    if mape_prophet < np.inf:
+        print(f"   • MAPE mejor Prophet: {mape_prophet:.2f}%")
+    print(f"   • Predicción próximo mes: {pred:.2f}")
+    print(f"   • Intervalo 95%: [{intervalo[0]:.2f}, {intervalo[1]:.2f}]")
+    
+    print(f"\nCONCLUSIONES:")
+    print(f"   • {'Modelo simple (lineal) suficiente para esta serie' if mejor_modelo == 'lineal' else 'Modelo complejo (Prophet) justificado por características estacionales'}")
+    print(f"   • Metodología evita sobreajuste mediante validación temporal")
+    print(f"   • Resultados reproducibles y justificables académicamente")
+    
+    print("\n" + "=" * 60)
+    print(f"✅ PROCESO COMPLETADO - Cédula: {cedula}, Tipo: {tipo}")
+    print("=" * 60)
 
-
-# === CANDIDATOS AUTOMÁTICOS ===
-
-cps_auto = detectar_changepoint_scale(df)
-
-cps_list = [0.005, 0.01, 0.03, 0.05, 0.08, 0.1, 0.15, 0.2, 0.3]
-sps_list = [1, 2, 5, 10, 15, 20]
-growth_list = ['linear', 'logistic']
-
-# Reglas para logistic (máximo histórico × 1.3)
-cap_max = np.percentile(df['y'], 95) * 1.2
-df_logistic = df.copy()
-df_logistic['cap'] = cap_max
-
-mejor_mape = np.inf
-mejor_modelo = None
-mejores_params = None
-
-print("\n=== ENTRENANDO MODELOS AUTOMÁTICOS ===")
-
-for cps in cps_list:
-    for sps in sps_list:
-        for growth in growth_list:
-
-            df_model = df_logistic if growth == 'logistic' else df
-
-            mape, modelo = evaluar_modelo(df_model, cps, sps, growth)
-
-            print(f"Modelo cps={cps}, sps={sps}, growth={growth} → MAPE={mape:.2f}%")
-
-            if mape < mejor_mape:
-                mejor_mape = mape
-                mejor_modelo = modelo
-                mejores_params = (cps, sps, growth)
-
-print("\n=== MEJOR MODELO ENCONTRADO ===")
-print(f"Changepoint Scale: {mejores_params[0]}")
-print(f"Seasonality Scale: {mejores_params[1]}")
-print(f"Crecimiento: {mejores_params[2]}")
-print(f"MEJOR MAPE: {mejor_mape:.2f}%")
-
-m = mejor_modelo
-
-# freq='M': Significa que cada período debe ser de un mes (Month End).
-#Creará solo los registros necesarios
-future = m.make_future_dataframe(periods=1, freq='ME')
-if 'cap' in df.columns:
-    future['cap'] = df['cap'].max()
-forecast = m.predict(future)
-#Para predecir valores dentro de los campos previamente creados
-forecast = m.predict(future)
-print("\n PREDICCIÓN DEL PROXIMO MES:")
-next_month = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].tail(1).copy()
-
-print(f"Fecha de predicción: {next_month['ds'].dt.strftime('%Y-%m-%d').values[0]}")
-print(f"Predicción: {next_month['yhat'].values[0]:.2f}")
-print(f"Intervalo inferior: {next_month['yhat_lower'].values[0]:.2f}")
-print(f"Intervalo superior: {next_month['yhat_upper'].values[0]:.2f}")
-
-#Plot graficos
-fig1 = m.plot(forecast)
-plt.title("Predicción del Consumo Mensual", fontsize=14, fontweight='bold')
-plt.xlabel("Fecha")
-plt.ylabel("Consumo")
-plt.grid(True, alpha=0.3)
-plt.show()
-
-#Plot componentes
-fig2 = m.plot_components(forecast)
-plt.tight_layout()
-plt.show()
-
-#Resumen de tendencia
-primer_valor = df['y'].iloc[0]
-ultimo_valor = df['y'].iloc[-1]
-
-tendencia = "CRECIENTE" if ultimo_valor > primer_valor else "DECRECIENTE"
-crecimiento = ultimo_valor - primer_valor
-
-print(f"Primer valor: {primer_valor:.2f} (fecha: {df['ds'].iloc[0]})")
-print(f"Último valor: {ultimo_valor:.2f} (fecha: {df['ds'].iloc[-1]})")
-print(f"Tendencia general: {tendencia}")
-print(f"Crecimiento total: {crecimiento:.2f}")
-print(f"Predicción para el proximo mes: {max(next_month['yhat'].values[0], 0):.2f}")
-
-# Comparación últimas predicciones vs reales
-print("\n🔍 COMPARACIÓN ENTRE REALES Y PREDICCIÓN:")
-
-comparison = forecast[['ds', 'yhat']].tail(6).copy()   # últimos 6 del forecast
-comparison = comparison.head(5)                        # solo los 5 reales conocidos
-comparison['y_real'] = df['y'].tail(5).values          # últimos 5 valores reales
-
-print(comparison[['ds', 'y_real', 'yhat']].round(2))
-
-#Porcentajes de error
-
-comparison['error_abs'] = abs(comparison['y_real'] - comparison['yhat'])
-comparison['error_pct'] = comparison['error_abs'] / comparison['y_real'] * 100
-
-# MAPE = promedio de los errores porcentuales
-mape = comparison['error_pct'].mean()
-
-print("Porcentaje de acierto:" f" {100 - mape:.2f}%")
+if __name__ == "__main__":
+    main()

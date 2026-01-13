@@ -1,8 +1,20 @@
+# Data Analysis & ML
 pandas
-prophet
-matplotlib
 numpy
-sklearn
-redis
+scikit-learn
+
+# Prophet y sus dependencias
+prophet
+cmdstanpy==1.2.0
+holidays==0.29
+tqdm==4.66.1
+lunardate==0.2.0
+convertdate==2.4.0
+
+# Visualización
+matplotlib
+plotly
+
 psycopg2-binary
+
 python-dotenv
