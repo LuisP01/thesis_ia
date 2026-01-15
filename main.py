@@ -14,22 +14,17 @@ def analizar_serie(df):
     """
     y = df['y'].values
     
-    # 1. Tendencia (R² de regresión lineal)
     X = np.arange(len(y)).reshape(-1, 1)
     modelo_lineal = LinearRegression().fit(X, y)
     r2 = modelo_lineal.score(X, y)
     
-    # 2. Variabilidad (Coeficiente de Variación)
     cv = np.std(y) / np.mean(y) if np.mean(y) > 0 else 1
     
-    # 3. Cambios mensuales medianos
     cambios = np.abs(np.diff(y) / (y[:-1] + 1e-10))
     cambio_mediano = np.median(cambios)
     
-    # 4. Estacionalidad aproximada (diferencias año a año)
     estacionalidad = 0
     if len(y) >= 13:
-        # Comparar cada mes con el mismo mes del año anterior
         difs_anuales = []
         for i in range(12, len(y)):
             if y[i-12] > 0:
@@ -38,7 +33,7 @@ def analizar_serie(df):
         if difs_anuales:
             estacionalidad = 1 - np.median(difs_anuales)
     
-    print("\n📊 ANÁLISIS DE LA SERIE TEMPORAL:")
+    print("\nANÁLISIS DE LA SERIE TEMPORAL:")
     print(f"   • Tendencia (R²): {r2:.3f}")
     print(f"   • Variabilidad (CV): {cv:.3f}")
     print(f"   • Cambio mensual mediano: {cambio_mediano:.3f}")
@@ -62,19 +57,15 @@ def walk_forward_validation(df, modelo_tipo='prophet', parametros=None, verbose=
     predicciones = []
     reales = []
     
-    # Mínimo 12 meses para entrenar, dejar 12 para validar
     n_total = len(df)
     if n_total < 24:
         print("    Pocos datos para validación walk-forward completa")
         return np.inf, ([], [])
     
-    # Para cada punto desde el mes 24 hasta el final
     for i in range(12, n_total - 1):
-        # Entrenar con datos hasta i
         df_train = df.iloc[:i+1].copy()
         
         if modelo_tipo == 'prophet':
-            # Configurar Prophet con parámetros
             if parametros is None:
                 parametros = {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10}
             
@@ -88,26 +79,21 @@ def walk_forward_validation(df, modelo_tipo='prophet', parametros=None, verbose=
             )
             m.fit(df_train)
             
-            # Predecir próximo mes
             future = m.make_future_dataframe(periods=1, freq='ME')
             forecast = m.predict(future)
             pred = forecast.iloc[-1]['yhat']
             
         elif modelo_tipo == 'lineal':
-            # Regresión lineal
             X_train = np.arange(len(df_train)).reshape(-1, 1)
             y_train = df_train['y'].values
             
             modelo = LinearRegression()
             modelo.fit(X_train, y_train)
             
-            # Predecir próximo mes
             pred = modelo.predict([[len(df_train)]])[0]
         
-        # Valor real (siguiente mes)
         real = df.iloc[i+1]['y']
         
-        # Calcular error (protegido contra divisiones por cero)
         error_rel = abs(real - pred) / max(abs(real), 1e-6)
 
         if verbose:
@@ -139,18 +125,13 @@ def evaluar_modelos_prophet(df, caracteristicas):
     """
     resultados = []
     
-    # Configuraciones basadas en el análisis
     if caracteristicas['r2'] > 0.7:
-        # Serie con buena tendencia
         cps_list = [0.01, 0.05]
     elif caracteristicas['cv'] > 0.5:
-        # Serie muy variable
         cps_list = [0.1, 0.2]
     else:
-        # Serie moderada
         cps_list = [0.05, 0.1]
     
-    # Seasonality scale basado en estacionalidad
     if caracteristicas['estacionalidad'] > 0.3:
         sps_list = [5, 10]
     else:
@@ -176,7 +157,6 @@ def evaluar_modelos_prophet(df, caracteristicas):
                     'sps': sps
                 })
     
-    # Ordenar por MAPE
     resultados.sort(key=lambda x: x['mape'])
     
     return resultados
@@ -231,18 +211,18 @@ def main():
     
     cedula = input("Ingrese el número de cédula: ").strip()
     if not cedula:
-        print("❌ Error: La cédula no puede estar vacía")
+        print("Error: La cédula no puede estar vacía")
         sys.exit(1)
     
     tipo = input("Ingrese el tipo de servicio (agua/luz): ").strip().lower()
     if tipo not in ['agua', 'luz']:
-        print("❌ Error: El tipo debe ser 'agua' o 'luz'")
+        print("Error: El tipo debe ser 'agua' o 'luz'")
         sys.exit(1)
     
     nombre_archivo = f"{cedula}_{tipo}.csv"
     
     if not os.path.exists(nombre_archivo):
-        print(f"❌ Error: No se encontró el archivo '{nombre_archivo}'")
+        print(f"Error: No se encontró el archivo '{nombre_archivo}'")
         sys.exit(1)
     
     try:
@@ -253,12 +233,12 @@ def main():
         
         df = df[['ds', 'y']].sort_values('ds').reset_index(drop=True)
         
-        print(f"\n✅ Datos cargados: {len(df)} meses")
-        print(f"📅 Desde: {df['ds'].iloc[0].strftime('%Y-%m')}")
-        print(f"📅 Hasta: {df['ds'].iloc[-1].strftime('%Y-%m')}")
+        print(f"\nDatos cargados: {len(df)} meses")
+        print(f"Desde: {df['ds'].iloc[0].strftime('%Y-%m')}")
+        print(f"Hasta: {df['ds'].iloc[-1].strftime('%Y-%m')}")
         
     except Exception as e:
-        print(f"❌ Error al cargar datos: {e}")
+        print(f"Error al cargar datos: {e}")
         sys.exit(1)
     
     print("\n" + "=" * 60)
@@ -271,7 +251,7 @@ def main():
     print("EVALUACIÓN DE MODELOS (WALK-FORWARD VALIDATION)")
     print("=" * 60)
     
-    print("\n📈 Evaluando Regresión Lineal...")
+    print("\nEvaluando Regresión Lineal...")
     mape_lineal, resultados_lineal = walk_forward_validation(df, modelo_tipo='lineal')
     
     mape_prophet = np.inf
@@ -279,7 +259,7 @@ def main():
     resultados_prophet = []
     
     if caracteristicas['n_meses'] >= 24:
-        print("\n📈 Evaluando Prophet...")
+        print("\nEvaluando Prophet...")
         resultados_prophet = evaluar_modelos_prophet(df, caracteristicas)
         
         if resultados_prophet:
@@ -295,7 +275,7 @@ def main():
     print("COMPARACIÓN DE MODELOS")
     print("=" * 60)
     
-    print(f"\n📊 RESULTADOS DE VALIDACIÓN:")
+    print(f"\nRESULTADOS DE VALIDACIÓN:")
     print(f"   • Regresión Lineal: MAPE = {mape_lineal:.2f}%")
     
     if mape_prophet < np.inf:
@@ -304,16 +284,16 @@ def main():
     if mape_prophet < mape_lineal:
         mejor_modelo = 'prophet'
         diferencia = mape_lineal - mape_prophet
-        print(f"\n✅ MEJOR MODELO: Prophet (mejor por {diferencia:.2f}% MAPE)")
+        print(f"\nMEJOR MODELO: Prophet (mejor por {diferencia:.2f}% MAPE)")
         print(f"   • Parámetros óptimos: CPS={mejores_parametros_prophet['changepoint_prior_scale']}, "
               f"SPS={mejores_parametros_prophet['seasonality_prior_scale']}")
     else:
         mejor_modelo = 'lineal'
         if mape_prophet < np.inf:
             diferencia = mape_prophet - mape_lineal
-            print(f"\n✅ MEJOR MODELO: Regresión Lineal (mejor por {diferencia:.2f}% MAPE)")
+            print(f"\nMEJOR MODELO: Regresión Lineal (mejor por {diferencia:.2f}% MAPE)")
         else:
-            print(f"\n✅ MEJOR MODELO: Regresión Lineal (único modelo evaluable)")
+            print(f"\nMEJOR MODELO: Regresión Lineal (único modelo evaluable)")
     
     print(f"\n🎓 JUSTIFICACIÓN ACADÉMICA:")
     
@@ -354,7 +334,7 @@ def main():
     print(f"Intervalo de confianza 95%: [{intervalo[0]:.2f}, {intervalo[1]:.2f}]")
     print(f"Modelo utilizado: {mejor_modelo.upper()}")
     
-    print("\n📈 Generando gráfico de resultados...")
+    print("\nGenerando gráfico de resultados...")
     
     fig, ax = plt.subplots(figsize=(12, 6))
     
@@ -406,19 +386,20 @@ def main():
     print(f"\nRESULTADOS OBTENIDOS:")
     print(f"   • Modelo seleccionado: {mejor_modelo.upper()}")
     print(f"   • MAPE modelo lineal: {mape_lineal:.2f}%")
+    
     if mape_prophet < np.inf:
         print(f"   • MAPE mejor Prophet: {mape_prophet:.2f}%")
-    print(f"   • Predicción próximo mes: {pred:.2f}")
-    print(f"   • Intervalo 95%: [{intervalo[0]:.2f}, {intervalo[1]:.2f}]")
-    
-    print(f"\nCONCLUSIONES:")
-    print(f"   • {'Modelo simple (lineal) suficiente para esta serie' if mejor_modelo == 'lineal' else 'Modelo complejo (Prophet) justificado por características estacionales'}")
-    print(f"   • Metodología evita sobreajuste mediante validación temporal")
-    print(f"   • Resultados reproducibles y justificables académicamente")
-    
-    print("\n" + "=" * 60)
-    print(f"✅ PROCESO COMPLETADO - Cédula: {cedula}, Tipo: {tipo}")
-    print("=" * 60)
+        print(f"   • Predicción próximo mes: {pred:.2f}")
+        print(f"   • Intervalo 95%: [{intervalo[0]:.2f}, {intervalo[1]:.2f}]")
+        
+        print(f"\nCONCLUSIONES:")
+        print(f"   • {'Modelo simple (lineal) suficiente para esta serie' if mejor_modelo == 'lineal' else 'Modelo complejo (Prophet) justificado por características estacionales'}")
+        print(f"   • Metodología evita sobreajuste mediante validación temporal")
+        print(f"   • Resultados reproducibles y justificables académicamente")
+        
+        print("\n" + "=" * 60)
+        print(f"PROCESO COMPLETADO - Cédula: {cedula}, Tipo: {tipo}")
+        print("=" * 60)
 
 if __name__ == "__main__":
     main()
