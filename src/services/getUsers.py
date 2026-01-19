@@ -9,7 +9,16 @@ def obtener_usuarios(limit=3):
     
     cur.execute(OBTAIN_USERS, (limit,))
     
-    usuarios = [row[0] for row in cur.fetchall()]
+    rows = cur.fetchall()
+
+    usuarios = [
+        {   
+            "id": row[0],
+            "username": row[1],
+            "agua": row[2],
+            "luz": row[3]
+        } for row in rows
+    ]
     
     cur.close()
     conn.close()

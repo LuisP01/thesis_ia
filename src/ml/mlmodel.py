@@ -7,12 +7,14 @@ import sys
 from sklearn.metrics import mean_absolute_error
 
 from src.models.prophet import evaluar_modelos_prophet, walk_forward_validation
+from src.services.forecastService import guardar_forecast
+from src.services.payment import calcular_pago
 from src.utils.firebaseStorage import descargar_csv_firebase
 from src.utils.monthlyForecast import predecir_proximo_mes
 from src.utils.seriesAnalytics import analizar_serie
 
 
-def ejecutar_sistema_completo(cedula: str, tipo: str):
+def ejecutar_sistema_completo(id: int, cedula: str, tipo: str, agua_data, luz_data):
     print("=" * 60)
     print("SISTEMA DE PREDICCIÓN - VERSIÓN TESIS OPTIMIZADA")
     print("=" * 60)
@@ -21,6 +23,15 @@ def ejecutar_sistema_completo(cedula: str, tipo: str):
     if ruta_local is None:
         print(f"Se omite {cedula} ({tipo}) por falta de archivo")
         return
+
+    if tipo == "agua" and not agua_data:
+        print(f"Se omite {cedula} (agua) — no tiene datos")
+        return
+
+    if tipo == "luz" and not luz_data:
+        print(f"Se omite {cedula} (luz) — no tiene datos")
+        return
+
 
     print("Ruta descargada:", ruta_local)
 
@@ -138,6 +149,26 @@ def ejecutar_sistema_completo(cedula: str, tipo: str):
     print(f"Intervalo de confianza 95%: [{intervalo[0]:.2f}, {intervalo[1]:.2f}]")
     print(f"Modelo utilizado: {mejor_modelo.upper()}")
     
+
+    payment = calcular_pago(
+        tipo=tipo,
+        consumo=pred,
+        water_data=agua_data if tipo == "agua" else None,
+        electricity_data=luz_data if tipo == "luz" else None
+    )
+
+            
+    guardar_forecast(
+        tipo=tipo,
+        periodo_yyyy_mm=proxima_fecha,
+        pred=pred,
+        payment=payment,
+        intervalo=intervalo,
+        cedula=id
+    )
+
+    print("✅ Forecast guardado en base de datos")
+        
     print("\n" + "=" * 60)
     print("RESUMEN PARA DOCUMENTACIÓN DE TESIS")
     print("=" * 60)
