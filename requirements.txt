@@ -1,20 +1,11 @@
-# Data Analysis & ML
 pandas
 numpy
 scikit-learn
-
-# Prophet y sus dependencias
+plotly
 prophet
 cmdstanpy==1.2.0
 holidays==0.29
 tqdm==4.66.1
-lunardate==0.2.0
-convertdate==2.4.0
-
-# Visualización
-matplotlib
-plotly
-
-psycopg2-binary
-
+firebase-admin
+psycopg2
 python-dotenv
