@@ -1,8 +1,11 @@
 pandas
-prophet
-matplotlib
 numpy
-sklearn
-redis
-psycopg2-binary
+scikit-learn
+plotly
+prophet
+cmdstanpy==1.2.0
+holidays==0.29
+tqdm==4.66.1
+firebase-admin
+psycopg2
 python-dotenv
