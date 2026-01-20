@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from src.ml.mlmodel import ejecutar_sistema_completo
 from src.services.getUsers import obtener_usuarios
 import json
