@@ -12,17 +12,26 @@ from src.services.payment import calcular_pago
 from src.utils.firebaseStorage import descargar_csv_firebase
 from src.utils.monthlyForecast import predecir_proximo_mes
 from src.utils.seriesAnalytics import analizar_serie
-
+from src.utils.visualization import (  
+    grafico_serie_completa,
+    grafico_comparacion_modelos,
+    grafico_prediccion_detallada,
+    grafico_resumen_ejecucion
+)
 
 def ejecutar_sistema_completo(id: int, cedula: str, tipo: str, agua_data, luz_data):
     print("=" * 60)
     print("SISTEMA DE PREDICCIÓN - VERSIÓN TESIS OPTIMIZADA")
     print("=" * 60)
     
+    rutas_graficos_generados = []
+    
     ruta_local = descargar_csv_firebase(cedula, tipo)
     if ruta_local is None:
         print(f"Se omite {cedula} ({tipo}) por falta de archivo")
         return
+
+    print(agua_data)
 
     if tipo == "agua" and not agua_data:
         print(f"Se omite {cedula} (agua) — no tiene datos")
@@ -32,13 +41,10 @@ def ejecutar_sistema_completo(id: int, cedula: str, tipo: str, agua_data, luz_da
         print(f"Se omite {cedula} (luz) — no tiene datos")
         return
 
-
     print("Ruta descargada:", ruta_local)
 
     if ruta_local and os.path.exists(ruta_local):
         print("Tamaño archivo (bytes):", os.path.getsize(ruta_local))
-
-
         
     try:
         df = pd.read_csv(ruta_local, sep=';', decimal=',')
@@ -69,9 +75,12 @@ def ejecutar_sistema_completo(id: int, cedula: str, tipo: str, agua_data, luz_da
     print("\nEvaluando Regresión Lineal...")
     mape_lineal, resultados_lineal = walk_forward_validation(df, modelo_tipo='lineal')
     
+    _, (reales_lineal, preds_lineal) = walk_forward_validation(df, modelo_tipo='lineal', verbose=False)
+    
     mape_prophet = np.inf
     mejores_parametros_prophet = None
     resultados_prophet = []
+    reales_prophet, preds_prophet = [], []
     
     if caracteristicas['n_meses'] >= 24:
         print("\nEvaluando Prophet...")
@@ -83,6 +92,13 @@ def ejecutar_sistema_completo(id: int, cedula: str, tipo: str, agua_data, luz_da
                 'changepoint_prior_scale': resultados_prophet[0]['cps'],
                 'seasonality_prior_scale': resultados_prophet[0]['sps']
             }
+            
+            _, (reales_prophet, preds_prophet) = walk_forward_validation(
+                df, 
+                modelo_tipo='prophet',
+                parametros=mejores_parametros_prophet,
+                verbose=False
+            )
     else:
         print(f"\n  Datos insuficientes para Prophet (se requieren ≥24 meses, hay {caracteristicas['n_meses']})!!!")
     
@@ -110,21 +126,27 @@ def ejecutar_sistema_completo(id: int, cedula: str, tipo: str, agua_data, luz_da
         else:
             print(f"\nMEJOR MODELO: Regresión Lineal (único modelo evaluable)")
     
-    print(f"\n🎓 JUSTIFICACIÓN ACADÉMICA:")
+    print(f"\nJUSTIFICACIÓN ACADÉMICA:")
     
+    recomendacion = ""
     if mejor_modelo == 'lineal':
         if caracteristicas['r2'] > 0.7:
             print(f"   • Serie con fuerte tendencia lineal (R²={caracteristicas['r2']:.3f})")
+            recomendacion += "Tendencia lineal fuerte → "
         if caracteristicas['estacionalidad'] < 0.2:
             print(f"   • Baja estacionalidad detectada ({caracteristicas['estacionalidad']:.3f})")
+            recomendacion += "Baja estacionalidad → "
         if caracteristicas['n_meses'] < 24:
             print(f"   • Datos insuficientes para modelos complejos (n={caracteristicas['n_meses']})")
+            recomendacion += "Datos insuficientes → "
         print(f"   • Modelo parsimonioso más robusto para series cortas/lineales")
+        recomendacion += "Usar Regresión Lineal"
     
     elif mejor_modelo == 'prophet':
         print(f"   • Prophet captura mejor la estacionalidad ({caracteristicas['estacionalidad']:.3f})")
         print(f"   • Suficientes datos para modelo complejo (n={caracteristicas['n_meses']})")
         print(f"   • Intervalos de confianza probabilísticos")
+        recomendacion = "Alta estacionalidad + datos suficientes → Usar Prophet"
     
     print("\n" + "=" * 60)
     print("PREDICCIÓN DEL PRÓXIMO MES")
@@ -149,15 +171,50 @@ def ejecutar_sistema_completo(id: int, cedula: str, tipo: str, agua_data, luz_da
     print(f"Intervalo de confianza 95%: [{intervalo[0]:.2f}, {intervalo[1]:.2f}]")
     print(f"Modelo utilizado: {mejor_modelo.upper()}")
     
-
+    print("\n" + "=" * 60)
+    print("GENERANDO GRÁFICOS PARA DOCUMENTACIÓN")
+    print("=" * 60)
+    
+    print("\nGenerando gráfico de serie completa...")
+    ruta_grafico1 = grafico_serie_completa(
+        df, pred, intervalo, proxima_fecha, cedula, tipo, mejor_modelo.upper()
+    )
+    if ruta_grafico1:
+        rutas_graficos_generados.append(ruta_grafico1)
+    
+    print("Generando gráfico de comparación de modelos...")
+    ruta_grafico2 = grafico_comparacion_modelos(
+        [mape_lineal], 
+        resultados_prophet,
+        cedula,
+        tipo
+    )
+    if ruta_grafico2:
+        rutas_graficos_generados.append(ruta_grafico2)
+    
+    print("Generando gráfico de validación walk-forward...")
+    
+    if mejor_modelo == 'lineal' and reales_lineal and preds_lineal:
+        ruta_grafico3 = grafico_prediccion_detallada(
+            df, reales_lineal, preds_lineal, cedula, tipo, 'lineal'
+        )
+        if ruta_grafico3:
+            rutas_graficos_generados.append(ruta_grafico3)
+    
+    elif mejor_modelo == 'prophet' and reales_prophet and preds_prophet:
+        ruta_grafico3 = grafico_prediccion_detallada(
+            df, reales_prophet, preds_prophet, cedula, tipo, 'prophet'
+        )
+        if ruta_grafico3:
+            rutas_graficos_generados.append(ruta_grafico3)
+    
     payment = calcular_pago(
         tipo=tipo,
         consumo=pred,
         water_data=agua_data if tipo == "agua" else None,
         electricity_data=luz_data if tipo == "luz" else None
     )
-
-            
+    
     guardar_forecast(
         tipo=tipo,
         periodo_yyyy_mm=proxima_fecha,
@@ -167,8 +224,27 @@ def ejecutar_sistema_completo(id: int, cedula: str, tipo: str, agua_data, luz_da
         cedula=id
     )
 
-    print("✅ Forecast guardado en base de datos")
-        
+    print("Forecast guardado en base de datos")
+    
+    print("Generando resumen ejecutivo...")
+    
+    resultados_resumen = {
+        'mape_lineal': mape_lineal,
+        'mape_prophet': mape_prophet if mape_prophet < np.inf else 'N/A',
+        'modelo_seleccionado': mejor_modelo.upper(),
+        'diferencia_mape': diferencia if 'diferencia' in locals() else 0,
+        'r2': caracteristicas['r2'],
+        'estacionalidad': caracteristicas['estacionalidad'],
+        'n_meses': caracteristicas['n_meses'],
+        'recomendacion': recomendacion
+    }
+    
+    ruta_grafico4 = grafico_resumen_ejecucion(
+        cedula, tipo, resultados_resumen, rutas_graficos_generados
+    )
+    if ruta_grafico4:
+        rutas_graficos_generados.append(ruta_grafico4)
+    
     print("\n" + "=" * 60)
     print("RESUMEN PARA DOCUMENTACIÓN DE TESIS")
     print("=" * 60)
@@ -179,6 +255,7 @@ def ejecutar_sistema_completo(id: int, cedula: str, tipo: str, agua_data, luz_da
     print(f"   3. Comparación de dos modelos: Lineal vs Prophet")
     print(f"   4. Selección basada en MAPE y características de la serie")
     print(f"   5. Predicción del próximo mes con intervalo de confianza")
+    print(f"   6. Generación de {len(rutas_graficos_generados)} gráficos de análisis")
     
     print(f"\nRESULTADOS OBTENIDOS:")
     print(f"   • Modelo seleccionado: {mejor_modelo.upper()}")
@@ -188,12 +265,19 @@ def ejecutar_sistema_completo(id: int, cedula: str, tipo: str, agua_data, luz_da
         print(f"   • MAPE mejor Prophet: {mape_prophet:.2f}%")
         print(f"   • Predicción próximo mes: {pred:.2f}")
         print(f"   • Intervalo 95%: [{intervalo[0]:.2f}, {intervalo[1]:.2f}]")
-        
-        print(f"\nCONCLUSIONES:")
-        print(f"   • {'Modelo simple (lineal) suficiente para esta serie' if mejor_modelo == 'lineal' else 'Modelo complejo (Prophet) justificado por características estacionales'}")
-        print(f"   • Metodología evita sobreajuste mediante validación temporal")
-        print(f"   • Resultados reproducibles y justificables académicamente")
-        
-        print("\n" + "=" * 60)
-        print(f"PROCESO COMPLETADO - Cédula: {cedula}, Tipo: {tipo}")
-        print("=" * 60)
+    
+    print(f"\n📁 GRÁFICOS GENERADOS:")
+    for i, ruta in enumerate(rutas_graficos_generados, 1):
+        nombre = os.path.basename(ruta)
+        print(f"   {i}. {nombre}")
+    
+    print(f"\nCONCLUSIONES:")
+    print(f"   • {'Modelo simple (lineal) suficiente para esta serie' if mejor_modelo == 'lineal' else 'Modelo complejo (Prophet) justificado por características estacionales'}")
+    print(f"   • Metodología evita sobreajuste mediante validación temporal")
+    print(f"   • Resultados reproducibles y justificables académicamente")
+    print(f"   • Visualización completa generada para documentación")
+    
+    print("\n" + "=" * 60)
+    print(f"PROCESO COMPLETADO - Cédula: {cedula}, Tipo: {tipo}")
+    print(f"Total gráficos generados: {len(rutas_graficos_generados)}")
+    print("=" * 60)

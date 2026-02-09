@@ -15,7 +15,6 @@ def get_bucket():
         if os.path.exists("src/config/firebase-key.json"):
             cred = credentials.Certificate("src/config/firebase-key.json")
         else:
-            print("FIREBASE_SERVICE_ACCOUNT =", os.getenv("FIREBASE_SERVICE_ACCOUNT"))
 
             firebase_creds = json.loads(os.getenv("FIREBASE_SERVICE_ACCOUNT"))
 
