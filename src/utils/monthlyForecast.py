@@ -1,4 +1,4 @@
-from src.models.prophet import Prophet
+from prophet import Prophet
 from sklearn.linear_model import LinearRegression
 import numpy as np
 
@@ -27,7 +27,7 @@ def predecir_proximo_mes(df, mejor_modelo, parametros=None):
             parametros = {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10}
         
         m = Prophet(
-            yearly_seasonality=True,
+            yearly_seasonality=False,
             weekly_seasonality=False,
             daily_seasonality=False,
             changepoint_prior_scale=parametros['changepoint_prior_scale'],

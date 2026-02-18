@@ -53,8 +53,7 @@ def ejecutar_sistema_completo(id: int, cedula: str, tipo: str, agua_data, luz_da
         print(f"Hasta: {df['ds'].iloc[-1].strftime('%Y-%m')}")
         
     except Exception as e:
-        print(f"Error al cargar datos: {e}")
-        sys.exit(1)
+        raise Exception(f"Error cargando datos {cedula}: {e}")
     
     print("\n" + "=" * 60)
     print("ANÁLISIS EXPLORATORIO")
@@ -110,7 +109,7 @@ def ejecutar_sistema_completo(id: int, cedula: str, tipo: str, agua_data, luz_da
         else:
             print(f"\nMEJOR MODELO: Regresión Lineal (único modelo evaluable)")
     
-    print(f"\n🎓 JUSTIFICACIÓN ACADÉMICA:")
+    print(f"\n JUSTIFICACIÓN ACADÉMICA:")
     
     if mejor_modelo == 'lineal':
         if caracteristicas['r2'] > 0.7:
@@ -134,9 +133,28 @@ def ejecutar_sistema_completo(id: int, cedula: str, tipo: str, agua_data, luz_da
         pred, intervalo, modelo_obj = predecir_proximo_mes(
             df, mejor_modelo, mejores_parametros_prophet
         )
+        
+        intervalo_estadistico = intervalo.copy()
+
+        intervalo_logico = [
+            max(0, intervalo[0]),
+            intervalo[1]
+        ]
+
+        print(f"Intervalo estadístico 95%: [{intervalo_estadistico[0]:.2f}, {intervalo_estadistico[1]:.2f}]")
+        print(f"Intervalo aplicado al negocio (truncado en 0): [{intervalo_logico[0]:.2f}, {intervalo_logico[1]:.2f}]")
+
     else:
         pred, intervalo, modelo_obj = predecir_proximo_mes(df, mejor_modelo)
-    
+        intervalo_estadistico = intervalo.copy()
+
+        intervalo_logico = [
+            max(0, intervalo[0]),
+            intervalo[1]
+        ]
+
+        print(f"Intervalo estadístico 95%: [{intervalo_estadistico[0]:.2f}, {intervalo_estadistico[1]:.2f}]")
+        print(f"Intervalo aplicado al negocio (truncado en 0): [{intervalo_logico[0]:.2f}, {intervalo_logico[1]:.2f}]")
     ultima_fecha = df['ds'].iloc[-1]
     if pd.isna(ultima_fecha):
         proxima_fecha = "Desconocida"
@@ -149,6 +167,17 @@ def ejecutar_sistema_completo(id: int, cedula: str, tipo: str, agua_data, luz_da
     print(f"Intervalo de confianza 95%: [{intervalo[0]:.2f}, {intervalo[1]:.2f}]")
     print(f"Modelo utilizado: {mejor_modelo.upper()}")
     
+    mostrar_analisis_precision(df, mape_lineal, mape_prophet, intervalo, pred)
+    
+    y = df['y'].values
+    n_ceros = np.sum(y == 0)
+
+    if mape_prophet < np.inf:
+        error_usado = min(mape_lineal, mape_prophet)
+    else:
+        error_usado = mape_lineal
+    
+    print(f"Error usado para BD: {error_usado:.2f}%")
 
     payment = calcular_pago(
         tipo=tipo,
@@ -164,10 +193,11 @@ def ejecutar_sistema_completo(id: int, cedula: str, tipo: str, agua_data, luz_da
         pred=pred,
         payment=payment,
         intervalo=intervalo,
-        cedula=id
+        cedula=id,
+        predict_percentage=error_usado
     )
 
-    print("✅ Forecast guardado en base de datos")
+    print("Forecast guardado en base de datos")
         
     print("\n" + "=" * 60)
     print("RESUMEN PARA DOCUMENTACIÓN DE TESIS")
@@ -197,3 +227,80 @@ def ejecutar_sistema_completo(id: int, cedula: str, tipo: str, agua_data, luz_da
         print("\n" + "=" * 60)
         print(f"PROCESO COMPLETADO - Cédula: {cedula}, Tipo: {tipo}")
         print("=" * 60)
+
+def mostrar_analisis_precision(df, mape_lineal, mape_prophet, intervalo, pred):
+    """
+    Muestra análisis completo de precisión para tesis.
+    """
+    print("\n" + "=" * 60)
+    print("ANÁLISIS DE PRECISIÓN - NIVEL TESIS")
+    print("=" * 60)
+    
+    y = df['y'].values
+    n_total = len(y)
+    n_ceros = np.sum(y == 0)
+    
+    if n_ceros > 0:
+        metrica_nombre = "SMAPE"
+        razon = f"La serie contiene {n_ceros} valores cero → usando SMAPE (robusto a ceros)"
+    else:
+        metrica_nombre = "MAPE"
+        razon = "Serie sin valores cero → usando MAPE"
+    
+    print(f"\n METODOLOGÍA DE VALIDACIÓN:")
+    print(f"   • Datos: {n_total} meses históricos")
+    print(f"   • Métrica: {metrica_nombre}")
+    print(f"   • {razon}")
+    
+    if n_total < 12:
+        print(f"   • Técnica: Leave-One-Out Cross Validation (LOOCV)")
+    elif n_total < 24:
+        print(f"   • Técnica: Validación parcial (70% train, 30% test)")
+    else:
+        print(f"   • Técnica: Walk-Forward Validation completa")
+    
+    print(f"\n RESULTADOS DE VALIDACIÓN:")
+    print(f"   • Regresión Lineal: {mape_lineal:.2f}% {metrica_nombre}")
+    
+    if mape_prophet < np.inf:
+        print(f"   • Prophet: {mape_prophet:.2f}% {metrica_nombre}")
+    
+    print(f"\n INTERPRETACIÓN ACADÉMICA:")
+    
+    error_usado = mape_lineal if mape_prophet == np.inf else min(mape_lineal, mape_prophet)
+    
+    if error_usado < 10:
+        nivel = "EXCELENTE"
+        confianza = "Alta (modelo muy confiable)"
+    elif error_usado < 20:
+        nivel = "BUENA" 
+        confianza = "Media-Alta (modelo aceptable)"
+    elif error_usado < 30:
+        nivel = "MODERADA"
+        confianza = "Media (usar con cautela)"
+    elif error_usado < 50:
+        nivel = "BAJA"
+        confianza = "Baja (alta incertidumbre)"
+    else:
+        nivel = "MUY BAJA"
+        confianza = "Muy baja (poco confiable)"
+    
+    print(f"   • Precisión {nivel}: {error_usado:.1f}% error")
+    print(f"   • Nivel de confianza: {confianza}")
+    
+    precision_porcentual = max(0, 100 - error_usado)
+    
+    print(f"\n INFERENCIA SOBRE PREDICCIÓN FUTURA:")
+    print(f"   Basado en la validación histórica:")
+    print(f"   • Error esperado: ~{error_usado:.1f}%")
+    print(f"   • Precisión estimada: {precision_porcentual:.1f}%")
+    print(f"   • Intervalo de confianza 95%: [{intervalo[0]:.2f}, {intervalo[1]:.2f}]")
+    
+    if pred != 0:
+        amplitud_rel = (intervalo[1] - intervalo[0]) / abs(pred) * 100
+        print(f"   • Amplitud del intervalo: {amplitud_rel:.1f}% del valor predicho")
+    
+    print(f"\n JUSTIFICACIÓN:")
+    print(f"   La métrica {metrica_nombre} de {error_usado:.1f}% indica que el modelo")
+    print(f"   tiene una precisión {nivel.lower()}, lo que es {'aceptable' if error_usado < 30 else 'limitado'}")
+    print(f"   para predicciones futuras en contextos reales.")

@@ -3,7 +3,7 @@ from src.config.dbConfig import get_postgres_connection
 from src.queries.queries import INSERT_FORECAST
 
 
-def guardar_forecast(tipo, periodo_yyyy_mm, pred, payment, intervalo, cedula):
+def guardar_forecast(tipo, periodo_yyyy_mm, pred, payment, intervalo, cedula, predict_percentage):
     period_date = datetime.strptime(periodo_yyyy_mm + "-01", "%Y-%m-%d")
 
     conn = get_postgres_connection()
@@ -18,7 +18,8 @@ def guardar_forecast(tipo, periodo_yyyy_mm, pred, payment, intervalo, cedula):
             float(payment),
             cedula,
             float(intervalo[1]), 
-            float(intervalo[0])
+            float(intervalo[0]),
+            float(predict_percentage)
         )
     )
 
