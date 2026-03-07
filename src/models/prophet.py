@@ -64,7 +64,7 @@ def walk_forward_validation(df, modelo_tipo='prophet', parametros=None, verbose=
     predicciones = []
     reales = []
     
-    logger.info(f"    Serie de {n_total} meses", end="")
+    logger.info(f"    Serie de {n_total} meses")
     if n_ceros > 0:
         logger.info(f" ({n_ceros} valores cero → usando SMAPE)")
     else:
