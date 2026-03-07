@@ -1,6 +1,9 @@
 import numpy as np
 from prophet import Prophet
 from sklearn.linear_model import LinearRegression
+import logging
+
+logger = logging.getLogger(__name__)
 
 def evaluar_modelos_prophet(df, caracteristicas):
     """
@@ -21,11 +24,11 @@ def evaluar_modelos_prophet(df, caracteristicas):
     else:
         sps_list = [10, 20]
     
-    print(f"\n Evaluando Prophet: {len(cps_list)}×{len(sps_list)} = {len(cps_list)*len(sps_list)} combinaciones")
+    logger.info(f"\n Evaluando Prophet: {len(cps_list)}×{len(sps_list)} = {len(cps_list)*len(sps_list)} combinaciones")
     
     for cps in cps_list:
         for sps in sps_list:
-            print(f"  • Probando cps={cps}, sps={sps}")
+            logger.info(f"  • Probando cps={cps}, sps={sps}")
             
             mape, _ = walk_forward_validation(
                 df, 
@@ -61,14 +64,14 @@ def walk_forward_validation(df, modelo_tipo='prophet', parametros=None, verbose=
     predicciones = []
     reales = []
     
-    print(f"    Serie de {n_total} meses", end="")
+    logger.info(f"    Serie de {n_total} meses")
     if n_ceros > 0:
-        print(f" ({n_ceros} valores cero → usando SMAPE)")
+        logger.info(f" ({n_ceros} valores cero → usando SMAPE)")
     else:
-        print(" (sin ceros → usando MAPE)")
+        logger.info(" (sin ceros → usando MAPE)")
     
     if n_total < 8:
-        print(f"     Serie muy corta (<8 meses) → predicción básica")
+        logger.info(f"     Serie muy corta (<8 meses) → predicción básica")
         if modelo_tipo == 'lineal' and n_total >= 3:
             X = np.arange(n_total).reshape(-1, 1)
             modelo = LinearRegression()
@@ -82,14 +85,14 @@ def walk_forward_validation(df, modelo_tipo='prophet', parametros=None, verbose=
                 error_estimado = 25.0  
             
             metric = error_estimado
-            print(f"    Error estimado: {metric:.1f}% (serie muy corta)")
+            logger.info(f"    Error estimado: {metric:.1f}% (serie muy corta)")
             
         else:
             metric = 30.0  
         return metric, ([], [])
     
     elif n_total < 12:
-        print(f"    Serie corta ({n_total} meses) → usando Leave-One-Out")
+        logger.info(f"    Serie corta ({n_total} meses) → usando Leave-One-Out")
         
         for i in range(n_total):
             mask = np.ones(n_total, dtype=bool)
@@ -134,7 +137,7 @@ def walk_forward_validation(df, modelo_tipo='prophet', parametros=None, verbose=
             reales.append(real)
     
     elif n_total < 24:
-        print(f"    Serie media ({n_total} meses) → usando validación parcial")
+        logger.info(f"    Serie media ({n_total} meses) → usando validación parcial")
         
         split_idx = int(n_total * 0.7)
         if split_idx < 6:  
@@ -181,7 +184,7 @@ def walk_forward_validation(df, modelo_tipo='prophet', parametros=None, verbose=
             reales.append(real)
     
     else:
-        print(f"    Serie larga ({n_total} meses) → usando walk-forward completo")
+        logger.info(f"    Serie larga ({n_total} meses) → usando walk-forward completo")
         
         for i in range(12, n_total - 1):
             df_train = df.iloc[:i+1].copy()
@@ -223,10 +226,10 @@ def walk_forward_validation(df, modelo_tipo='prophet', parametros=None, verbose=
     if errores:
         metric = np.mean(errores) * 100
         if usar_smape:
-            print(f"    SMAPE: {metric:.2f}% (robusto con ceros)")
+            logger.info(f"    SMAPE: {metric:.2f}% (robusto con ceros)")
         else:
-            print(f"    MAPE: {metric:.2f}%")
+            logger.info(f"    MAPE: {metric:.2f}%")
         return metric, (reales, predicciones)
     
-    print(f"    No se pudo calcular error -> usando estimación: 25.0%")
+    logger.info(f"    No se pudo calcular error -> usando estimación: 25.0%")
     return 25.0, ([], [])

@@ -4,6 +4,9 @@ from dotenv import load_dotenv
 import os
 from typing import Generator
 
+import logging
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -33,9 +36,9 @@ def get_postgres_connection():
         )
         
         if connection:
-            print("Conectado a la base de datos PostgreSQL")
+            logger.info("Conectado a la base de datos PostgreSQL")
             return connection
             
     except Error as e:
-        print("Error al conectar con PostgreSQL:", e)
+        logger.error("Error al conectar con PostgreSQL: %s", e)
         return None
