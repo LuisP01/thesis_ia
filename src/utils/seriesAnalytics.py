@@ -4,6 +4,10 @@ import numpy as np
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 def analizar_serie(df):
     """
     Análisis básico de la serie temporal para justificación metodológica.
@@ -30,11 +34,11 @@ def analizar_serie(df):
         if difs_anuales:
             estacionalidad = 1 - np.median(difs_anuales)
     
-    print("\nANÁLISIS DE LA SERIE TEMPORAL:")
-    print(f"   • Tendencia (R²): {r2:.3f}")
-    print(f"   • Variabilidad (CV): {cv:.3f}")
-    print(f"   • Cambio mensual mediano: {cambio_mediano:.3f}")
-    print(f"   • Estacionalidad aproximada: {estacionalidad:.3f}")
+    logger.info("\nANÁLISIS DE LA SERIE TEMPORAL:")
+    logger.info(f"   • Tendencia (R²): {r2:.3f}")
+    logger.info(f"   • Variabilidad (CV): {cv:.3f}")
+    logger.info(f"   • Cambio mensual mediano: {cambio_mediano:.3f}")
+    logger.info(f"   • Estacionalidad aproximada: {estacionalidad:.3f}")
     
     return {
         'r2': r2,

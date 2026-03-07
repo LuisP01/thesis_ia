@@ -3,6 +3,10 @@ import firebase_admin
 from firebase_admin import credentials, storage
 import os
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 _bucket = None
 
 def get_bucket():
@@ -15,7 +19,7 @@ def get_bucket():
         if os.path.exists("src/config/firebase-key.json"):
             cred = credentials.Certificate("src/config/firebase-key.json")
         else:
-            print("FIREBASE_SERVICE_ACCOUNT =", os.getenv("FIREBASE_SERVICE_ACCOUNT"))
+            logger.info("FIREBASE_SERVICE_ACCOUNT =", os.getenv("FIREBASE_SERVICE_ACCOUNT"))
 
             firebase_creds = json.loads(os.getenv("FIREBASE_SERVICE_ACCOUNT"))
 

@@ -1,16 +1,6 @@
 OBTAIN_USERS= """
+    select id, username, water_data, electricity_data from users
     LIMIT %s
-FROM public.users u
-WHERE EXISTS (
-    SELECT 1 
-    FROM public.bill b 
-    WHERE b.client_id = u.id
-)
-AND NOT EXISTS (
-    SELECT 1 
-    FROM public.forecast f 
-    WHERE f.user_id = u.id
-)
 """
 
 INSERT_FORECAST="""
