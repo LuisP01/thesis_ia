@@ -12,7 +12,7 @@ def main():
     print("INICIANDO JOB DE PREDICCIÓN MASIVA")
     print("=" * 60)
 
-    usuarios = obtener_usuarios(limit=3)
+    usuarios = obtener_usuarios()
 
     print(f"Usuarios obtenidos: {usuarios}")
     print(f"Total ejecuciones esperadas: {len(usuarios) * len(TIPOS)}")

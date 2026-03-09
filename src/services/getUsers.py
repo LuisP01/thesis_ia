@@ -3,11 +3,11 @@ from src.config.dbConfig import get_postgres_connection
 from src.queries.queries import OBTAIN_USERS
 
 
-def obtener_usuarios(limit=3):
+def obtener_usuarios():
     conn = get_postgres_connection()
     cur = conn.cursor()
     
-    cur.execute(OBTAIN_USERS, (limit,))
+    cur.execute(OBTAIN_USERS)
     
     rows = cur.fetchall()
 
