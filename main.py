@@ -18,7 +18,7 @@ def main():
     logger.info("INICIANDO JOB DE PREDICCIÓN MASIVA")
     logger.info("=" * 60)
 
-    usuarios = obtener_usuarios(limit=3)
+    usuarios = obtener_usuarios()
 
     logger.info(f"Usuarios obtenidos: {usuarios}")
     logger.info(f"Total ejecuciones esperadas: {len(usuarios) * len(TIPOS)}")
