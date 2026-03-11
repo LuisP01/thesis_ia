@@ -1,6 +1,5 @@
 OBTAIN_USERS= """
     select id, username, water_data, electricity_data from users
-    LIMIT %s
 """
 
 INSERT_FORECAST="""

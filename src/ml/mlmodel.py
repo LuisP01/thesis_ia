@@ -187,15 +187,15 @@ def ejecutar_sistema_completo(id: int, cedula: str, tipo: str, agua_data, luz_da
     )
 
             
-    guardar_forecast(
-        tipo=tipo,
-        periodo_yyyy_mm=proxima_fecha,
-        pred=pred,
-        payment=payment,
-        intervalo=intervalo,
-        cedula=id,
-        predict_percentage=error_usado
-    )
+    # guardar_forecast(
+    #     tipo=tipo,
+    #     periodo_yyyy_mm=proxima_fecha,
+    #     pred=pred,
+    #     payment=payment,
+    #     intervalo=intervalo,
+    #     cedula=id,
+    #     predict_percentage=error_usado
+    # )
 
     print("Forecast guardado en base de datos")
         
